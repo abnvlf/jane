@@ -1,0 +1,8 @@
+#ifndef JANE_CONFIG_H
+#define JANE_CONFIG_H
+
+#define JANE_VERSION_MAJOR 1
+#define JANE_VERSION_MINOR 0
+#define JANE_VERSION_STRING "1.0"
+
+#endif // JANE_CONFIG_H
