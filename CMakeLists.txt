@@ -10,10 +10,16 @@ message("config jane version ${JANE_VERSION}")
 
 find_package(llvm)
 include_directories(${LLVM_INCLUDE_DIR})
-set(JANE_SOURCES "${CMAKE_SOURCE_DIR}/src/main.c")
+
+include_directories(${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR})
+
+set(JANE_SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp" "${CMAKE_SOURCE_DIR}/src/util.cpp")
 
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
 configure_file("${CMAKE_SOURCE_DIR}/src/config.h.in" ${CONFIGURE_OUT_FILE})
+
+set(CMAKE_CXX_IMPLICIT_LINK_LIBRARIES "")
+set(CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES "")
 
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Wno-unused-variable -Wno-unused-but-set-variable")
 set(EXE_CFLAGS "-std=c11 -Werror -Wall -Werror=strict-prototypes -Werror=old-style-definition -Werror=missing-prototypes")

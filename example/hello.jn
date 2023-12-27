@@ -1,0 +1,6 @@
+#include <stdio.h>
+#include "adding.h"
+
+int main(int argc, char **argv) {
+    fprintf(stderr, "khairanabilla, you are %d", add(5, 2));
+}

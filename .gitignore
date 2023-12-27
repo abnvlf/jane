@@ -58,3 +58,6 @@ CMakeCache.txt
 cmake_install.cmake
 
 Makefile
+
+# automate cleanup compiled file
+rolling.sh
