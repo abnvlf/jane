@@ -174,12 +174,31 @@ static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
   return memcmp(buf_ptr(buf), mem, mem_len) == 0;
 }
 
+static inline bool buf_eql_str(Buf *buf, const char *str) {
+  return buf_eql_mem(buf, str, strlen(str));
+}
+
+static inline bool buf_eql_buf(Buf *buf, Buf *other) {
+  return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
+}
+
+static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
+  if (start != end) {
+    jane_panic("TODO: buf_splice_buf");
+  }
+  int old_buf_len = buf_len(buf);
+  buf_resize(buf, old_buf_len + buf_len(other));
+  memmove(buf_ptr(buf) + start + buf_len(other), buf_ptr(buf) + start,
+          old_buf_len - start);
+  memcpy(buf_ptr(buf) + start, buf_ptr(other), buf_len(other));
+}
+
 static inline Buf *buf_dirname(Buf *buf) {
   if (buf_len(buf) <= 2) {
-    jane_panic("TODO: buf_dirname");
+    jane_panic("TODO: buf dirname small");
   }
   int last_index = buf_len(buf) - 1;
-  if (buf_ptr(buf)[buf_len(buf) - 1] == '/') {
+  if (buf_ptr(buf)[buf_len(buf)] == '/') {
     last_index = buf_len(buf) - 2;
   }
   for (int i = last_index; i >= 0; i -= 1) {
@@ -188,7 +207,7 @@ static inline Buf *buf_dirname(Buf *buf) {
       return buf_slice(buf, 0, i);
     }
   }
-  jane_panic("TODO: buf_dirname no slash");
+  return buf_create_from_mem((char *)"", 0);
 }
 
 #endif // JANE_BUFFER
