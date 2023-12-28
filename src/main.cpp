@@ -186,7 +186,7 @@ static void end_token(Tokenize *t) {
   char *token_mem = buf_ptr(t->buf) + t->cur_tok->start_pos;
   int token_len = t->cur_tok->end_pos - t->cur_tok->start_pos;
 
-  if (mem_eql_str(token_mem, token_len, "fn")) {
+  if (mem_eql_str(token_mem, token_len, "fun")) {
     t->cur_tok->id = TokenIdKeywordFn;
   } else if (mem_eql_str(token_mem, token_len, "return")) {
     t->cur_tok->id = TokenIdKeywordReturn;
