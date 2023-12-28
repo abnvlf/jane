@@ -13,11 +13,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-struct Buf {
-  int len;
-  char ptr[0];
-};
-
 void jane_panic(const char *format, ...) __attribute__((cold))
 __attribute__((noreturn)) __attribute__((format(printf, 1, 2)));
 
@@ -62,7 +57,7 @@ __attribute__((malloc)) static inline T *allocate(size_t count) {
  * @return pointer to the reallocated memory block
  */
 template <typename T>
-static inline T *realloc_nonzero(T *old, size_t new_count) {
+static inline T *reallocate_nonzero(T *old, size_t new_count) {
   T *ptr = reinterpret_cast<T *>(realloc(old, new_count * sizeof(T)));
   if (!ptr) {
     jane_panic("allocation failed");
@@ -120,13 +115,6 @@ template <typename T> static inline T min(T a, T b) { return (a <= b) ? a : b; }
  */
 template <typename T> static inline T clamp(T min_value, T value, T max_value) {
   return max(min(value, max_value), min_value);
-}
-
-static Buf *alloc_buf(int size) {
-  Buf *buf = (Buf *)allocate_nonzero<char>(sizeof(Buf) + size + 1);
-  buf->len = size;
-  buf->ptr[buf->len] = 0;
-  return buf;
 }
 
 #endif // JANE_UTIL

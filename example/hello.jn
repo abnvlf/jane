@@ -1,6 +1,4 @@
-#include <stdio.h>
-#include "adding.h"
-
-int main(int argc, char **argv) {
-    fprintf(stderr, "khairanabilla, you are %d", add(5, 2));
+fn main(argc: isize, argv: *mut u8) -> isize {
+    puts("amicia you are awesome\n");
+    return 0;
 }
