@@ -117,6 +117,13 @@ template <typename T> static inline T clamp(T min_value, T value, T max_value) {
   return max(min(value, max_value), min_value);
 }
 
+/**
+ * @brief check if a memory region is equal to a null-terminated string
+ * @param mem pointer ot the memory region
+ * @param mem_len length of the meory region
+ * @param str null-terminated string for comparison
+ * @return `true` if the memory ergion is equal to the string, otherwise `false`
+ */
 static inline bool mem_eql_str(const char *mem, size_t mem_len,
                                const char *str) {
   size_t str_len = strlen(str);

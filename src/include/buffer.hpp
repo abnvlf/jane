@@ -57,13 +57,15 @@ static inline Buf *buf_alloc_fixed(int size) {
   return buf;
 }
 
+static inline void buf_deinit(Buf *buf) { buf->list.deinit(); }
+
 /**
  * @brief iniitialize buffer from a memory region
  * @param buf buffer to initialize
  * @param ptr pointer to the memory region
  * @param len length of memory region
  */
-static inline void buf_init_from_mem(Buf *buf, char *ptr, int len) {
+static inline void buf_init_from_mem(Buf *buf, const char *ptr, int len) {
   buf->list.resize(len + 1);
   memcpy(buf_ptr(buf), ptr, len);
   buf->list.at(buf_len(buf)) = 0;
@@ -75,7 +77,7 @@ static inline void buf_init_from_mem(Buf *buf, char *ptr, int len) {
  * @param len length of the memory region
  * @return newly allocated buffer initialize with the specified memory region
  */
-static inline Buf *buf_create_from_mem(char *ptr, int len) {
+static inline Buf *buf_create_from_mem(const char *ptr, int len) {
   Buf *buf = allocate<Buf>(1);
   buf_init_from_mem(buf, ptr, len);
   return buf;
@@ -86,7 +88,7 @@ static inline Buf *buf_create_from_mem(char *ptr, int len) {
  * @param str the null terminated string
  * @param newly allocated buffer initialize with the specified string
  */
-static inline Buf *buf_create_from_str(char *str) {
+static inline Buf *buf_create_from_str(const char *str) {
   return buf_create_from_mem(str, strlen(str));
 }
 

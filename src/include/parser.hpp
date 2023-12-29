@@ -81,5 +81,7 @@ struct AstNode {
 __attribute__((format(printf, 2, 3))) void ast_error(Token *token,
                                                      const char *format, ...);
 AstNode *ast_parse(Buf *buf, JaneList<Token> *tokens);
+const char *node_type_str(NodeType node_type);
+void ast_print(AstNode *node, int indent);
 
 #endif // JANE_PARSER
