@@ -5,6 +5,11 @@
 #include <assert.h>
 #include <stdint.h>
 
+#define BUF_INIT                                                               \
+  {                                                                            \
+    { 0 }                                                                      \
+  }
+
 // dyanimc buffer data structu with string formatting capability
 struct Buf {
   JaneList<char> list;
@@ -22,15 +27,20 @@ Buf *buf_sprintf(const char *format, ...) __attribute__((format(printf, 1, 2)));
  * @param buf the buffer
  * @return length of the buffer
  */
-static inline int buf_len(Buf *buf) { return buf->list.length - 1; }
+static inline int buf_len(Buf *buf) {
+  assert(buf->list.length);
+  return buf->list.length - 1;
+}
 
 /**
  * @brief pointer to the underlying character array of the buffer
  * @param buf the buffer
  * @return pointer to the character array
  */
-static inline char *buf_ptr(Buf *buf) { return buf->list.items; }
-
+static inline char *buf_ptr(Buf *buf) {
+  assert(buf->list.length);
+  return buf->list.items;
+}
 /**
  * @brief aresize the buffer to the specified new length
  * @param the buffer
@@ -69,6 +79,24 @@ static inline void buf_init_from_mem(Buf *buf, const char *ptr, int len) {
   buf->list.resize(len + 1);
   memcpy(buf_ptr(buf), ptr, len);
   buf->list.at(buf_len(buf)) = 0;
+}
+
+/**
+ * @brief initializes a buffer from a null-terminated string.
+ * @param buf pointer to the buffer structure to be initialized.
+ * @param str null-terminated string to initialize the buffer with.
+ */
+static inline void buf_init_from_str(Buf *buf, const char *str) {
+  buf_init_from_mem(buf, str, strlen(str));
+}
+
+/**
+ * @brief initializes a buffer from another buffer.
+ * @param buf pointer to the buffer structure to be initialized.
+ * @param other pointer to the source buffer to initialize from.
+ */
+static inline void buf_init_from_buf(Buf *buf, Buf *other) {
+  buf_init_from_mem(buf, buf_ptr(other), buf_len(other));
 }
 
 /**
@@ -176,40 +204,42 @@ static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
   return memcmp(buf_ptr(buf), mem, mem_len) == 0;
 }
 
+/**
+ * @brief checks if the buffer is equal to a null-terminated string.
+ * @param buf pointer to the buffer structure.
+ * @param str null-terminated string to compare.
+ * @return returns true if the buffer is equal to the given string, false
+ * otherwise.
+ */
 static inline bool buf_eql_str(Buf *buf, const char *str) {
   return buf_eql_mem(buf, str, strlen(str));
 }
 
+/**
+ * @brief checks if the buffer is equal to another buffer.
+ * @param buf pointer to the buffer structure.
+ * @param other pointer to the other buffer to compare.
+ * @return returns true if the buffer is equal to the other buffer, false
+ * otherwise.
+ */
 static inline bool buf_eql_buf(Buf *buf, Buf *other) {
   return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
 }
 
-static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
-  if (start != end) {
-    jane_panic("TODO: buf_splice_buf");
+/**
+ * @brief computes the 32-bit hash value for the buffer using the FNV hash
+ *        algorithm.
+ * @param buf pointer to the buffer structure.
+ * @return returns the computed 32-bit hash value.
+ */
+static inline uint32_t buf_hash(Buf *buf) {
+  assert(buf->list.length);
+  uint32_t h = 2166136261;
+  for (int i = 0; i < buf_len(buf); i += 1) {
+    h = h ^ ((uint8_t)buf->list.at(i));
+    h = h ^ 16777619;
   }
-  int old_buf_len = buf_len(buf);
-  buf_resize(buf, old_buf_len + buf_len(other));
-  memmove(buf_ptr(buf) + start + buf_len(other), buf_ptr(buf) + start,
-          old_buf_len - start);
-  memcpy(buf_ptr(buf) + start, buf_ptr(other), buf_len(other));
-}
-
-static inline Buf *buf_dirname(Buf *buf) {
-  if (buf_len(buf) <= 2) {
-    jane_panic("TODO: buf dirname small");
-  }
-  int last_index = buf_len(buf) - 1;
-  if (buf_ptr(buf)[buf_len(buf)] == '/') {
-    last_index = buf_len(buf) - 2;
-  }
-  for (int i = last_index; i >= 0; i -= 1) {
-    uint8_t c = buf_ptr(buf)[i];
-    if (c == '/') {
-      return buf_slice(buf, 0, i);
-    }
-  }
-  return buf_create_from_mem((char *)"", 0);
+  return h;
 }
 
 #endif // JANE_BUFFER

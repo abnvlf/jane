@@ -57,6 +57,11 @@ template <typename T> struct JaneList {
    * @return the added item
    */
   void add_one() { return resize(length + 1); }
+
+  const T &last() const {
+    assert(length >= 1);
+    return items[length - 1];
+  }
   /**
    * @brief return reference to the last item in the list
    * @return reference to the last item in the last

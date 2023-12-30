@@ -4,16 +4,18 @@
 #include "buffer.hpp"
 
 enum TokenId {
-  TokenIdStar = 0,
-  TokenIdLParen = 1,
-  TokenIdEof = 2,
+  TokenIdEof,
   TokenIdSymbol,
   TokenIdKeywordFn,
   TokenIdKeywordReturn,
   TokenIdKeywordMut,
   TokenIdKeywordConst,
+  TokenIdKeywordExtern,
+  TokenIdKeywordUnreachable,
+  TokenIdLParen,
   TokenIdRParen,
   TokenIdComma,
+  TokenIdStar,
   TokenIdLBrace,
   TokenIdRBrace,
   TokenIdStringLiteral,
@@ -23,6 +25,7 @@ enum TokenId {
   TokenIdColon,
   TokenIdArrow,
   TokenIdDash,
+  TokenIdNumberSign,
 };
 
 struct Token {
@@ -41,7 +44,7 @@ enum TokenizeState {
   TokenizeStateSawDash,
 };
 
-JaneList<Token> *tokenize(Buf *buf, Buf *cur_dir_path);
+JaneList<Token> *tokenize(Buf *buf);
 void print_tokens(Buf *buf, JaneList<Token> *tokens);
 
 #endif // JANE_TOKENIZER

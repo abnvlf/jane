@@ -25,6 +25,7 @@ Buf *buf_sprintf(const char *format, ...) {
 
 // append a formatted string to an existing buffer
 void buf_appendf(Buf *buf, const char *format, ...) {
+  assert(buf->list.length);
   // initialize two raguments list
   va_list ap, ap2;
   va_start(ap, format);

@@ -6,12 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define WHITESPACE                                                             \
-  ' ' : case '\t':                                                             \
-  case '\n':                                                                   \
-  case '\f':                                                                   \
-  case '\r':                                                                   \
-  case 0xb
+#define WHITESPACE ' ' : case '\n'
 
 #define DIGIT                                                                  \
   '0' : case '1':                                                              \
@@ -90,7 +85,6 @@ struct Tokenize {
   int line;
   int column;
   Token *cur_tok;
-  Buf *cur_dir_path;
 };
 
 __attribute__((format(printf, 2, 3))) static void
@@ -148,7 +142,6 @@ JaneList<Token> *tokenize(Buf *buf, Buf *cur_dir_path) {
   Tokenize t = {0};
   t.tokens = allocate<JaneList<Token>>(1);
   t.buf = buf;
-  t.cur_dir_path = cur_dir_path;
   for (t.pos = 0; t.pos < buf_len(t.buf); t.pos += 1) {
     uint8_t c = buf_ptr(t.buf)[t.pos];
     switch (t.state) {
@@ -157,6 +150,7 @@ JaneList<Token> *tokenize(Buf *buf, Buf *cur_dir_path) {
       case WHITESPACE:
         break;
       case ALPHA:
+      case '_':
         t.state = TokenizeStateSymbol;
         begin_token(&t, TokenIdSymbol);
         break;
@@ -207,6 +201,10 @@ JaneList<Token> *tokenize(Buf *buf, Buf *cur_dir_path) {
       case '-':
         begin_token(&t, TokenIdDash);
         t.state = TokenizeStateSawDash;
+        break;
+      case '#':
+        begin_token(&t, TokenIdNumberSign);
+        end_token(&t);
         break;
       default:
         tokenize_error(&t, "invalid character: '%c'", c);
@@ -301,6 +299,10 @@ static const char *token_name(Token *token) {
     return "Mut";
   case TokenIdKeywordReturn:
     return "Return";
+  case TokenIdKeywordExtern:
+    return "Extern";
+  case TokenIdKeywordUnreachable:
+    return "Unreachable";
   case TokenIdLParen:
     return "LParen";
   case TokenIdRParen:
@@ -327,6 +329,8 @@ static const char *token_name(Token *token) {
     return "Arrow";
   case TokenIdDash:
     return "Dash";
+  case TokenIdNumberSign:
+    return "NumberSign";
   }
   return "(invalid token)";
 }

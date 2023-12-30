@@ -2,19 +2,23 @@
 #define JANE_UTIL
 
 #include <assert.h>
-#include <errno.h>
-#include <limits.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
+#include <new>
+#define BREAKPOINT __asm("int $0x03")
+
+/**
+ * @brief custom print function to make error formatting
+ * @param format text to be created
+ */
 void jane_panic(const char *format, ...) __attribute__((cold))
 __attribute__((noreturn)) __attribute__((format(printf, 1, 2)));
+
+__attribute__((cold)) __attribute__((noreturn)) static inline void
+jane_unreachable(void) {
+  jane_panic("unreahable");
+}
 
 /**
  * @brief allocate block memory for an array of element of type T without zero
@@ -25,7 +29,7 @@ __attribute__((noreturn)) __attribute__((format(printf, 1, 2)));
  */
 template <typename T>
 __attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
-  T *ptr = reinterpret_cast<T *>(calloc(count, sizeof(T)));
+  T *ptr = reinterpret_cast<T *>(malloc(count * sizeof(T)));
   if (!ptr) {
     jane_panic("allocation failed");
   }
@@ -41,7 +45,7 @@ __attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
  */
 template <typename T>
 __attribute__((malloc)) static inline T *allocate(size_t count) {
-  T *ptr = reinterpret_cast<T *>(calloc(count, sizeof(T)));
+  T *ptr = reinterpret_cast<T *>(std::calloc(count, sizeof(T)));
   if (!ptr) {
     jane_panic("allocation failed");
   }
@@ -58,7 +62,7 @@ __attribute__((malloc)) static inline T *allocate(size_t count) {
  */
 template <typename T>
 static inline T *reallocate_nonzero(T *old, size_t new_count) {
-  T *ptr = reinterpret_cast<T *>(realloc(old, new_count * sizeof(T)));
+  T *ptr = reinterpret_cast<T *>(std::realloc(old, new_count * sizeof(T)));
   if (!ptr) {
     jane_panic("allocation failed");
   }
@@ -73,8 +77,8 @@ static inline T *reallocate_nonzero(T *old, size_t new_count) {
  * @param ... additional argument for format
  * @return dynamically allocated string with the formatted content
  */
-char *jane_alloc_sprintf(int *len, const char *format, ...)
-    __attribute__((format(printf, 2, 3)));
+// char *jane_alloc_sprintf(int *len, const char *format, ...)
+//     __attribute__((format(printf, 2, 3)));
 
 /**
  * @brief return the length of statically sized array
