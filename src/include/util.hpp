@@ -8,6 +8,8 @@
 #include <new>
 #define BREAKPOINT __asm("int $0x03")
 
+static const int COMPILE_FAILED_ERR_CODE = 10;
+
 /**
  * @brief custom print function to make error formatting
  * @param format text to be created

@@ -3,6 +3,7 @@
 
 #include "list.hpp"
 #include <assert.h>
+#include <ctype.h>
 #include <stdint.h>
 
 #define BUF_INIT                                                               \
@@ -160,6 +161,7 @@ static inline void buf_append_mem(Buf *buf, const char *mem, int mem_len) {
  * @param str null-terminated string
  */
 static inline void buf_append_str(Buf *buf, const char *str) {
+  assert(buf->list.length);
   buf_append_mem(buf, str, strlen(str));
 }
 
@@ -169,6 +171,7 @@ static inline void buf_append_str(Buf *buf, const char *str) {
  * @param append_buf buffer to append
  */
 static inline void buf_append_buf(Buf *buf, Buf *append_buf) {
+  assert(buf->list.length);
   buf_append_mem(buf, buf_ptr(append_buf), buf_len(append_buf));
 }
 
@@ -178,6 +181,7 @@ static inline void buf_append_buf(Buf *buf, Buf *append_buf) {
  * @param c character to append
  */
 static inline void buf_append_char(Buf *buf, uint8_t c) {
+  assert(buf->list.length);
   buf_append_mem(buf, (const char *)&c, 1);
 }
 
@@ -212,6 +216,7 @@ static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
  * otherwise.
  */
 static inline bool buf_eql_str(Buf *buf, const char *str) {
+  assert(buf->list.length);
   return buf_eql_mem(buf, str, strlen(str));
 }
 
@@ -222,9 +227,7 @@ static inline bool buf_eql_str(Buf *buf, const char *str) {
  * @return returns true if the buffer is equal to the other buffer, false
  * otherwise.
  */
-static inline bool buf_eql_buf(Buf *buf, Buf *other) {
-  return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
-}
+bool buf_eql_buf(Buf *buf, Buf *other);
 
 /**
  * @brief computes the 32-bit hash value for the buffer using the FNV hash
@@ -232,14 +235,12 @@ static inline bool buf_eql_buf(Buf *buf, Buf *other) {
  * @param buf pointer to the buffer structure.
  * @return returns the computed 32-bit hash value.
  */
-static inline uint32_t buf_hash(Buf *buf) {
-  assert(buf->list.length);
-  uint32_t h = 2166136261;
+uint32_t buf_hash(Buf *buf);
+
+static inline void buf_upcase(Buf *buf) {
   for (int i = 0; i < buf_len(buf); i += 1) {
-    h = h ^ ((uint8_t)buf->list.at(i));
-    h = h ^ 16777619;
+    buf_ptr(buf)[i] = toupper(buf_ptr(buf)[i]);
   }
-  return h;
 }
 
 #endif // JANE_BUFFER

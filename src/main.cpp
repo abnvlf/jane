@@ -1,4 +1,5 @@
 #include "../config.h"
+#include "include/analyze.hpp"
 #include "include/buffer.hpp"
 #include "include/codegen.hpp"
 #include "include/error.hpp"
@@ -9,8 +10,8 @@
 
 #include <cstdlib>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
-#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,14 +27,24 @@ static int usage(const char *arg0) {
           "build    [create an executable from target files]\n"
           "link     [turn `.o` file to executable files]\n"
           "option\n"
-          "--output   [output file]\n"
+          "--output (file)   [output file]\n"
           "--version  [display version of jane language]\n"
           "--release  [build with optimization on]\n"
           "--strip    [exclude debug symbol]\n"
           "--static   [build a static executable]\n"
-          "-Ipath     [add path to haeder include path]\n",
+          "-Ipath     [add path to haeder include path]\n"
+          "--export (exe | lib | obj) override output type\n",
           arg0);
   return EXIT_FAILURE;
+}
+
+static int version(void) {
+  printf("first. an organism that convert caffeine into code, usually late at "
+         "night\n"
+         "second. a person who solves a problem you didn't know you had in a "
+         "way don't understand\n");
+  printf("jane v%s\n", JANE_VERSION_STRING);
+  return EXIT_SUCCESS;
 }
 
 static Buf *fetch_file(FILE *f) {
@@ -56,8 +67,8 @@ static Buf *fetch_file(FILE *f) {
 }
 
 static int build(const char *arg0, const char *in_files, const char *out_files,
-                 JaneList<char *> *include_paths, bool release, bool strip,
-                 bool is_static) {
+                 bool release, bool strip, bool is_static, OutType out_type,
+                 char *output_name) {
   static char cur_dir[1024];
   if (!in_files || !out_files) {
     return usage(arg0);
@@ -126,25 +137,25 @@ static int build(const char *arg0, const char *in_files, const char *out_files,
 enum Cmd {
   CmdNone,
   CmdBuild,
+  CmdVersion,
 };
 
 int main(int argc, char **argv) {
   char *arg0 = argv[0];
-  char *in_file = NULL;
-  char *out_file = NULL;
-  JaneList<char *> include_paths = {0};
+  char *input_file = NULL;
+  char *output_file = NULL;
   bool release = false;
   bool strip = false;
   bool is_static = false;
+
+  OutType out_type = OutTypeUnknown;
+  char *output_name = NULL;
 
   Cmd cmd = CmdNone;
   for (int i = 1; i < argc; i += 1) {
     char *arg = argv[i];
     if (arg[0] == '-' && arg[1] == '-') {
-      if (strcmp(arg, "--version") == 0) {
-        printf("jane v%s\n", JANE_VERSION_STRING);
-        return EXIT_SUCCESS;
-      } else if (strcmp(arg, "--release") == 0) {
+      if (strcmp(arg, "--release") == 0) {
         release = true;
       } else if (strcmp(arg, "--strip") == 0) {
         strip = true;
@@ -155,18 +166,30 @@ int main(int argc, char **argv) {
       } else {
         i += 1;
         if (strcmp(arg, "--output") == 0) {
-          out_file = argv[i];
+          output_file = argv[i];
+        } else if (strcmp(arg, "--export") == 0) {
+          if (strcmp(argv[i], "exe") == 0) {
+            out_type = OutTypeExe;
+          } else if (strcmp(argv[i], "lib") == 0) {
+            out_type = OutTypeLib;
+          } else if (strcmp(argv[i], "obj") == 0) {
+            out_type = OutTypeObj;
+          } else {
+            return usage(arg0);
+          }
+        } else if (strcmp(arg, "--name") == 0) {
+          output_name = argv[i];
         } else {
           return usage(arg0);
         }
       }
-    } else if (arg[0] == '-' && arg[1] == 'I') {
-      include_paths.append(arg + 2);
     } else if (cmd == CmdNone) {
       if (strcmp(arg, "build") == 0) {
         cmd = CmdBuild;
+      } else if (strcmp(arg, "version") == 0) {
+        cmd = CmdVersion;
       } else {
-        fprintf(stderr, "Unrecognized command: %s\n", arg);
+        fprintf(stderr, "unrecognized command: %s\n", arg);
         return usage(arg0);
       }
     } else {
@@ -174,12 +197,14 @@ int main(int argc, char **argv) {
       case CmdNone:
         jane_unreachable();
       case CmdBuild:
-        if (!in_file) {
-          in_file = arg;
+        if (!input_file) {
+          input_file = arg;
         } else {
           return usage(arg0);
         }
         break;
+      case CmdVersion:
+        return usage(arg0);
       }
     }
   }
@@ -188,9 +213,10 @@ int main(int argc, char **argv) {
   case CmdNone:
     return usage(arg0);
   case CmdBuild:
-    return build(arg0, in_file, out_file, &include_paths, release, strip,
-                 is_static);
+    return build(arg0, input_file, output_file, release, strip, is_static,
+                 out_type, output_name);
+  case CmdVersion:
+    return version();
   }
-
   jane_unreachable();
 }

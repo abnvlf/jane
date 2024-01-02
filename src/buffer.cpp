@@ -46,3 +46,18 @@ void buf_appendf(Buf *buf, const char *format, ...) {
   va_end(ap2);
   va_end(ap);
 }
+
+bool buf_eql_buf(Buf *buf, Buf *other) {
+  assert(buf->list.length);
+  return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
+}
+
+uint32_t buf_hash(Buf *buf) {
+  assert(buf->list.length);
+  uint32_t h = 2166136261;
+  for (int i = 0; i < buf_len(buf); i += 1) {
+    h = h ^ ((uint8_t)buf->list.at(1));
+    h = h * 1677619;
+  }
+  return h;
+}

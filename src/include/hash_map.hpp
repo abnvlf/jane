@@ -142,7 +142,7 @@ private:
       int index = (start_index + roll_over) % _capacity;
       Entry *entry = &_entries[index];
       if (entry->used && !EqualFn(entry->key, key)) {
-        if (entry->key_distance_from_stard_index < distance_from_start_index) {
+        if (entry->distance_from_start_index < distance_from_start_index) {
           Entry tmp = *entry;
           if (entry->distance_from_start_index < distance_from_start_index) {
             _max_distance_from_start_index = distance_from_start_index;

@@ -2,10 +2,12 @@
 
 const char *err_str(int err) {
   switch ((enum Error)err) {
+  case ErrorNone:
+    return "(no error)";
   case ErrorNoMem:
-    return "error: out of memory";
+    return "out of memory";
   case ErrorInvalidFormat:
-    return "error: invalid format";
+    return "invalid format";
   }
-  return "(invalid error)";
+  return "(invalid error!)";
 }

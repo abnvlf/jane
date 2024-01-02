@@ -1,4 +1,5 @@
-fun main(argc: isize, argv: *mut u8) -> isize {
-    print("amicia you are awesome\n");
-    return 0;
+fun main() -> usize {
+    int8 angka = 12
+    print("khairanabilla are awesome\n")
+    return 0
 }

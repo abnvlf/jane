@@ -12,6 +12,9 @@ enum TokenId {
   TokenIdKeywordConst,
   TokenIdKeywordExtern,
   TokenIdKeywordUnreachable,
+  TokenIdKeywordPub,
+  TokenIdKeywordExport,
+  TokenIdKeywordAs,
   TokenIdLParen,
   TokenIdRParen,
   TokenIdComma,
@@ -26,6 +29,24 @@ enum TokenId {
   TokenIdArrow,
   TokenIdDash,
   TokenIdNumberSign,
+  TokenIdBoolOr,
+  TokenIdBoolAnd,
+  TokenIdBinOr,
+  TokenIdBinAnd,
+  TokenIdBinXor,
+  TokenIdEq,
+  TokenIdCmpEq,
+  TokenIdBang,
+  TokenIdTilde,
+  TokenIdCmpNotEq,
+  TokenIdCmpLessThan,
+  TokenIdCmpGreaterThan,
+  TokenIdCmpLessOrEq,
+  TokenIdCmpGreaterOrEq,
+  TokenIdBitShiftLeft,
+  TokenIdBitShiftRight,
+  TokenIdSlash,
+  TokenIdPercent,
 };
 
 struct Token {
@@ -34,14 +55,6 @@ struct Token {
   int end_position;
   int start_line;
   int start_column;
-};
-
-enum TokenizeState {
-  TokenizeStateStart,
-  TokenizeStateSymbol,
-  TokenizeStateNumber,
-  TokenizeStateString,
-  TokenizeStateSawDash,
 };
 
 JaneList<Token> *tokenize(Buf *buf);

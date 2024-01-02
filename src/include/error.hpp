@@ -2,6 +2,7 @@
 #define JANE_ERROR
 
 enum Error {
+  ErrorNone,
   ErrorNoMem,
   ErrorInvalidFormat,
 };

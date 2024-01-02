@@ -10,24 +10,39 @@ struct CodeGenNode;
 
 enum NodeType {
   NodeTypeRoot,
+  NodeTypeRootExportDecl,
   NodeTypeFnProto,
   NodeTypeFnDef,
   NodeTypeFnDecl,
   NodeTypeParamDecl,
   NodeTypeType,
   NodeTypeBlock,
-  NodeTypeExpression,
-  NodeTypeFnCall,
   NodeTypeExternBlock,
   NodeTypeDirective,
-  NodeTypeStatementReturn,
+  NodeTypeReturnExpr,
+  NodeTypeBinOpExpr,
+  NodeTypeCastExpr,
+  NodeTypeNumberLiteral,
+  NodeTypeStringLiteral,
+  NodeTypeUnreachable,
+  NodeTypeSymbol,
+  NodeTypePrefixOpExpr,
+  NodeTypeFnCallExpr,
 };
 
 struct AstNodeRoot {
   JaneList<AstNode *> top_level_decls;
 };
 
+enum FnProtoVisibMod {
+  FnProtoVisibModPrivate,
+  FnProtoVisibModPub,
+  FnProtoVisibModExport,
+};
+
 struct AstNodeFnProto {
+  JaneList<AstNode *> *directives;
+  FnProtoVisibMod visib_mod;
   Buf name;
   JaneList<AstNode *> params;
   AstNode *return_type;
@@ -40,7 +55,6 @@ struct AstNodeFnDef {
 
 struct AstNodeFnDecl {
   AstNode *fn_proto;
-  AstNode *body;
 };
 
 struct AstNodeParamDecl {
@@ -63,39 +77,74 @@ struct AstNodeBlock {
   JaneList<AstNode *> statements;
 };
 
-struct AstNodeStatementReturn {
+struct AstNodeReturnExpr {
   AstNode *expression;
 };
 
-enum AstNodeExpressionType {
-  AstNodeExpressionTypeNumber,
-  AstNodeExpressionTypeString,
-  AstNodeExpressionTypeFnCall,
-  AstNodeExpressionTypeUnreachable,
+enum BinOpType {
+  BinOpTypeInvalid,
+  BinOpTypeBoolOr,
+  BinOpTypeBoolAnd,
+  BinOpTypeCmpEq,
+  BinOpTypeCmpNotEq,
+  BinOpTypeCmpLessThan,
+  BinOpTypeCmpGreaterThan,
+  BinOpTypeCmpLessOrEq,
+  BinOpTypeCmpGreaterOrEq,
+  BinOpTypeBinOr,
+  BinOpTypeBinXor,
+  BinOpTypeBinAnd,
+  BinOpTypeBitShiftLeft,
+  BinOpTypeBitShiftRight,
+  BinOpTypeAdd,
+  BinOpTypeSub,
+  BinOpTypeMult,
+  BinOpTypeDiv,
+  BinOpTypeMod,
 };
 
-struct AstNodeExpression {
-  AstNodeExpressionType type;
-  union {
-    Buf number;
-    Buf string;
-    AstNode *fn_call;
-  } data;
+struct AstNodeBinOpExpr {
+  AstNode *op1;
+  BinOpType bin_op;
+  AstNode *op2;
 };
 
-struct AstNodeFnCall {
-  Buf name;
+struct AstNodeFnCallExpr {
+  AstNode *fn_ref_expr;
   JaneList<AstNode *> params;
 };
 
 struct AstNodeExternBlock {
-  JaneList<AstNode *> *directive;
+  JaneList<AstNode *> *directives;
   JaneList<AstNode *> fn_decls;
 };
 
 struct AstNodeDirective {
   Buf name;
   Buf param;
+};
+
+struct AstNodeRootExportDecl {
+  Buf type;
+  Buf name;
+  JaneList<AstNode *> *directives;
+};
+
+struct AstNodeCastExpr {
+  AstNode *prefix_op_expr;
+  AstNode *type;
+};
+
+enum PrefixOp {
+  PrefixOpInvalid,
+  PrefixOpBoolNot,
+  PrefixOpBinNot,
+  PrefixOpNegation,
+};
+
+struct AstNodePrefixOpExpr {
+  PrefixOp prefix_op;
+  AstNode *primary_expr;
 };
 
 struct AstNode {
@@ -106,20 +155,25 @@ struct AstNode {
   CodeGenNode *codegen_node;
   union {
     AstNodeRoot root;
+    AstNodeRootExportDecl root_export_decl;
     AstNodeFnDef fn_def;
     AstNodeFnDecl fn_decl;
     AstNodeFnProto fn_proto;
     AstNodeType type;
     AstNodeParamDecl param_decl;
     AstNodeBlock block;
-    AstNodeStatementReturn statement_return;
-    AstNodeExpression expression;
-    AstNodeFnCall fn_call;
+    AstNodeReturnExpr return_expr;
+    AstNodeBinOpExpr bin_op_expr;
     AstNodeExternBlock extern_block;
     AstNodeDirective directive;
+    AstNodeCastExpr cast_expr;
+    AstNodePrefixOpExpr prefix_op_expr;
+    AstNodeFnCallExpr fn_call_expr;
+    Buf number;
+    Buf string;
+    Buf symbol;
   } data;
 };
-
 __attribute__((format(printf, 2, 3))) void
 ast_token_error(Token *token, const char *format, ...);
 
