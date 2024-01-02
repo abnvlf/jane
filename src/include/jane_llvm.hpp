@@ -1,6 +1,8 @@
 #ifndef JANE_LLVM
 #define JANE_LLVM
 
+#include "buffer.hpp"
+
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Initialization.h>
@@ -54,6 +56,11 @@ LLVMJaneDIType *LLVMJaneCreateDebugBasicType(LLVMJaneDIBuilder *dibuilder,
                                              uint64_t align_in_bits,
                                              unsigned encoding);
 
+LLVMJaneDISubroutineType *
+LLVMJaneCreateSubroutineType(LLVMJaneDIBuilder *dibuilder_wrapped,
+                             LLVMJaneDIFile *file, LLVMJaneDIType **types_array,
+                             int types_array_len, unsigned flags);
+
 unsigned LLVMJaneEncoding_DW_ATE_unsigned(void);
 unsigned LLVMJaneEncoding_DW_ATE_signed(void);
 unsigned LLVMJaneLang_DW_LANG_C99(void);
@@ -94,5 +101,7 @@ LLVMJaneCreateFunction(LLVMJaneDIBuilder *dibuilder, LLVMJaneDIScope *scope,
                        bool is_optimized, LLVMValueRef function);
 
 void LLVMJaneDIBuilderFinalize(LLVMJaneDIBuilder *dibuilder);
+
+Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine);
 
 #endif // JANE_LLVM
