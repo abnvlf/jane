@@ -56,7 +56,7 @@ static void resolve_type(CodeGen *g, AstNode *node) {
     } else {
       add_node_error(g, node,
                      buf_sprintf("invalid type name: `%s`", buf_ptr(name)));
-      type_node->entry = g->invalid_type_entry;
+      type_node->entry = g->builtin_types.entry_invalid;
     }
     break;
   }
@@ -64,7 +64,7 @@ static void resolve_type(CodeGen *g, AstNode *node) {
     resolve_type(g, node->data.type.child_type);
     TypeNode *child_type_node =
         &node->data.type.child_type->codegen_node->data.type_node;
-    if (child_type_node->entry->id == TypeIdUnreachable) {
+    if (child_type_node->entry == g->builtin_types.entry_unreachable) {
       add_node_error(g, node,
                      buf_create_from_str("pointer to unreachable not allowed"));
     }
@@ -76,7 +76,6 @@ static void resolve_type(CodeGen *g, AstNode *node) {
       type_node->entry = *parent_pointer;
     } else {
       TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-      entry->id = TypeIdPointer;
       entry->type_ref = LLVMPointerType(child_type_node->entry->type_ref, 0);
       buf_resize(&entry->name, 0);
       buf_appendf(&entry->name, "*%s %s", const_or_mut_str,
@@ -237,7 +236,6 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
   TypeTableEntry *type_entry =
       return_type_node->codegen_node->data.type_node.entry;
   assert(type_entry);
-  TypeId type_id = type_entry->id;
   AstNode *body_node = node->data.fn_def.body;
   assert(body_node->type == NodeTypeBlock);
 
@@ -245,7 +243,7 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
   for (int i = 0; i < body_node->data.block.statements.length; i += 1) {
     AstNode *statement_node = body_node->data.block.statements.at(i);
     if (statement_node->type == NodeTypeReturnExpr) {
-      if (type_id == TypeIdUnreachable) {
+      if (type_entry == g->builtin_types.entry_unreachable) {
         add_node_error(
             g, statement_node,
             buf_sprintf(
@@ -260,9 +258,9 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
   }
 
   if (!prev_statement_return) {
-    if (type_id == TypeIdVoid) {
+    if (type_entry == g->builtin_types.entry_void) {
       codegen_fn_def->add_implicit_return = true;
-    } else if (type_id != TypeIdUnreachable) {
+    } else if (type_entry != g->builtin_types.entry_unreachable) {
       add_node_error(g, node,
                      buf_sprintf("control reaches end of non-void function"));
     }
@@ -400,43 +398,42 @@ static void analyze_root(CodeGen *g, AstNode *node) {
 static void define_primitive_types(CodeGen *g) {
   {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->id = TypeIdU8;
     entry->type_ref = LLVMInt8Type();
     buf_init_from_str(&entry->name, "u8");
     entry->di_type =
         LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
                                      LLVMJaneEncoding_DW_ATE_unsigned());
     g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_u8 = entry;
   }
   {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->id = TypeIdI32;
     entry->type_ref = LLVMInt32Type();
     buf_init_from_str(&entry->name, "i32");
     entry->di_type =
         LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
                                      LLVMJaneEncoding_DW_ATE_signed());
     g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_i32 = entry;
   }
   {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->id = TypeIdVoid;
     entry->type_ref = LLVMVoidType();
     buf_init_from_str(&entry->name, "void");
     entry->di_type =
         LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
                                      LLVMJaneEncoding_DW_ATE_unsigned());
     g->type_table.put(&entry->name, entry);
-
-    g->invalid_type_entry = entry;
+    g->builtin_types.entry_void = entry;
+    g->builtin_types.entry_invalid = entry;
   }
   {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->id = TypeIdUnreachable;
     entry->type_ref = LLVMVoidType();
     buf_init_from_str(&entry->name, "unreachable");
-    entry->di_type = g->invalid_type_entry->di_type;
+    entry->di_type = g->builtin_types.entry_invalid->di_type;
     g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_unreachable = entry;
   }
 }
 

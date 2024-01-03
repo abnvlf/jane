@@ -59,11 +59,12 @@ static LLVMJaneDIType *to_llvm_debug_type(AstNode *type_node) {
   return type_node->codegen_node->data.type_node.entry->di_type;
 }
 
-static bool type_is_unreachable(AstNode *type_node) {
+static bool type_is_unreachable(CodeGen *g, AstNode *type_node) {
   assert(type_node->type == NodeTypeType);
   assert(type_node->codegen_node);
   assert(type_node->codegen_node->data.type_node.entry);
-  return type_node->codegen_node->data.type_node.entry->id == TypeIdUnreachable;
+  return type_node->codegen_node->data.type_node.entry ==
+         g->builtin_types.entry_unreachable;
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
@@ -123,7 +124,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
       g->builder, fn_table_entry->fn_value, param_values, actual_param_count,
       fn_table_entry->calling_convention, "");
   if (type_is_unreachable(
-          fn_table_entry->proto_node->data.fn_proto.return_type)) {
+          g, fn_table_entry->proto_node->data.fn_proto.return_type)) {
     return LLVMBuildUnreachable(g->builder);
   } else {
     return result;
@@ -470,7 +471,7 @@ void code_gen(CodeGen *g) {
         LLVMAddFunction(g->module, buf_ptr(&fn_proto->name), function_type);
     LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMInternalLinkage
                                                         : LLVMExternalLinkage);
-    if (type_is_unreachable(fn_proto->return_type)) {
+    if (type_is_unreachable(g, fn_proto->return_type)) {
       LLVMAddFunctionAttr(fn, LLVMNoReturnAttribute);
     }
     LLVMSetFunctionCallConv(fn, fn_table_entry->calling_convention);
@@ -535,27 +536,15 @@ static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
   TypeTableEntry *type_entry = type_node->codegen_node->data.type_node.entry;
   assert(type_entry);
 
-  switch (type_entry->id) {
-  case TypeIdUserDefined:
-    jane_panic("TODO: type user defined");
-    break;
-  case TypeIdPointer:
-    jane_panic("TODO: type id pointer");
-    break;
-  case TypeIdU8:
+  if (type_entry == g->builtin_types.entry_u8) {
     g->c_stdint_used = true;
     return buf_create_from_str("uint8_t");
-  case TypeIdI32:
+  } else if (type_entry == g->builtin_types.entry_i32) {
     g->c_stdint_used = true;
     return buf_create_from_str("int32_t");
-  case TypeIdVoid:
-    jane_panic("TODO: type id void");
-    break;
-  case TypeIdUnreachable:
-    jane_panic("TODO: type id unreachable");
-    break;
+  } else {
+    jane_panic("TODO: still working on it");
   }
-  jane_unreachable();
 }
 
 static void generate_h_file(CodeGen *g) {
