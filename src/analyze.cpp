@@ -1,13 +1,15 @@
 #include "include/analyze.hpp"
-#include "include/buffer.hpp"
-#include "include/codegen.hpp"
 #include "include/error.hpp"
 #include "include/jane_llvm.hpp"
 #include "include/parser.hpp"
 #include "include/semantic_info.hpp"
 #include "include/util.hpp"
-#include <llvm-c/Core.h>
-#include <llvm-c/TargetMachine.h>
+
+struct BlockContext {
+  AstNode *node;
+  BlockContext *root;
+  BlockContext *parent;
+};
 
 static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
   g->errors.add_one();
@@ -224,6 +226,138 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
   }
 }
 
+static TypeTableEntry *get_return_type(BlockContext *context) {
+  AstNode *fn_def_node = context->root->node;
+  assert(fn_def_node->type == NodeTypeFnDef);
+  AstNode *fn_proto_node = fn_def_node->data.fn_def.fn_proto;
+  assert(fn_proto_node->type == NodeTypeFnProto);
+  AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
+  assert(return_type_node->codegen_node);
+  return return_type_node->codegen_node->data.type_node.entry;
+}
+
+static void check_type_compatiblity(CodeGen *g, AstNode *node,
+                                    TypeTableEntry *expected_type,
+                                    TypeTableEntry *actual_type) {
+  if (expected_type == actual_type) {
+    return;
+  }
+  if (expected_type == g->builtin_types.entry_invalid ||
+      actual_type == g->builtin_types.entry_invalid) {
+    return;
+  }
+  if (actual_type == g->builtin_types.entry_unreachable) {
+    return;
+  }
+  add_node_error(g, node, buf_sprintf("type mismatch"));
+}
+
+static TypeTableEntry *analyze_expression(CodeGen *g, BlockContext *context,
+                                          TypeTableEntry *expected_type,
+                                          AstNode *node) {
+  switch (node->type) {
+  case NodeTypeBlock: {
+    TypeTableEntry *return_type = g->builtin_types.entry_void;
+    for (int i = 0; i < node->data.block.statements.length; i += 1) {
+      AstNode *child = node->data.block.statements.at(i);
+      if (return_type == g->builtin_types.entry_unreachable) {
+        add_node_error(g, child, buf_sprintf("unreachable code"));
+        break;
+      }
+      return_type = analyze_expression(g, context, nullptr, child);
+    }
+    return return_type;
+  }
+  case NodeTypeReturnExpr: {
+    TypeTableEntry *expected_return_type = get_return_type(context);
+    TypeTableEntry *actual_return_type;
+    if (node->data.return_expr.expression) {
+      actual_return_type = analyze_expression(
+          g, context, expected_return_type, node->data.return_expr.expression);
+    } else {
+      actual_return_type = g->builtin_types.entry_void;
+    }
+
+    if (actual_return_type == g->builtin_types.entry_unreachable) {
+      add_node_error(g, node, buf_sprintf("returning is unreachable"));
+      actual_return_type = g->builtin_types.entry_invalid;
+    }
+    check_type_compatiblity(g, node, expected_return_type, actual_return_type);
+    return g->builtin_types.entry_unreachable;
+  }
+  case NodeTypeBinOpExpr: {
+    analyze_expression(g, context, expected_type, node->data.bin_op_expr.op1);
+    analyze_expression(g, context, expected_type, node->data.bin_op_expr.op2);
+    return expected_type;
+  }
+  case NodeTypeFnCallExpr: {
+    Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
+    auto entry = g->fn_table.maybe_get(name);
+    if (!entry) {
+      add_node_error(g, node,
+                     buf_sprintf("undefined function: %s", buf_ptr(name)));
+      for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+        AstNode *child = node->data.fn_call_expr.params.at(i);
+        analyze_expression(g, context, nullptr, child);
+      }
+      return g->builtin_types.entry_invalid;
+    } else {
+      FnTableEntry *fn_table_entry = entry->value;
+      assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
+      AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
+      int expected_param_count = fn_proto->params.length;
+      int actual_param_count = node->data.fn_call_expr.params.length;
+      if (expected_param_count != actual_param_count) {
+        add_node_error(
+            g, node,
+            buf_sprintf("wrong number of argument, expected %d, got `%d`",
+                        expected_param_count, actual_param_count));
+      }
+      for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+        AstNode *child = node->data.fn_call_expr.params.at(i);
+        TypeTableEntry *expected_param_type = nullptr;
+        if (i < fn_proto->params.length) {
+          AstNode *param_decl_node = fn_proto->params.at(i);
+          assert(param_decl_node->type == NodeTypeParamDecl);
+          AstNode *param_type_node = param_decl_node->data.param_decl.type;
+          if (param_type_node->codegen_node) {
+            expected_param_type =
+                param_type_node->codegen_node->data.type_node.entry;
+          }
+        }
+        analyze_expression(g, context, expected_param_type, child);
+      }
+      TypeTableEntry *return_type =
+          fn_proto->return_type->codegen_node->data.type_node.entry;
+      check_type_compatiblity(g, node, expected_type, return_type);
+      return return_type;
+    }
+  }
+  case NodeTypeNumberLiteral:
+    return g->builtin_types.entry_i32;
+  case NodeTypeStringLiteral:
+    jane_panic("TODO: node type string literal");
+  case NodeTypeUnreachable:
+    return g->builtin_types.entry_unreachable;
+  case NodeTypeSymbol:
+    jane_panic("TODO: node type symbol");
+  case NodeTypeCastExpr:
+  case NodeTypePrefixOpExpr:
+    jane_panic("TODO: prefix operation expression");
+  case NodeTypeDirective:
+  case NodeTypeFnDecl:
+  case NodeTypeFnProto:
+  case NodeTypeParamDecl:
+  case NodeTypeType:
+  case NodeTypeRoot:
+  case NodeTypeRootExportDecl:
+  case NodeTypeExternBlock:
+  case NodeTypeFnDef:
+    jane_unreachable();
+  }
+  jane_unreachable();
+}
+
 static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
   assert(node->type == NodeTypeFnDef);
   AstNode *proto_node = node->data.fn_def.fn_proto;
@@ -267,72 +401,6 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
   }
 }
 
-static void analyze_expression(CodeGen *g, AstNode *node) {
-  switch (node->type) {
-  case NodeTypeBlock:
-    for (int i = 0; i < node->data.block.statements.length; i += 1) {
-      AstNode *child = node->data.block.statements.at(i);
-      analyze_expression(g, child);
-    }
-    break;
-  case NodeTypeReturnExpr:
-    if (node->data.return_expr.expression) {
-      analyze_expression(g, node->data.return_expr.expression);
-    }
-    break;
-  case NodeTypeBinOpExpr:
-    analyze_expression(g, node->data.bin_op_expr.op1);
-    analyze_expression(g, node->data.bin_op_expr.op2);
-    break;
-  case NodeTypeFnCallExpr: {
-    Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
-    auto entry = g->fn_table.maybe_get(name);
-    if (!entry) {
-      add_node_error(g, node,
-                     buf_sprintf("undefined function: `%s`", buf_ptr(name)));
-    } else {
-      FnTableEntry *fn_table_entry = entry->value;
-      assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-      int expected_param_count =
-          fn_table_entry->proto_node->data.fn_proto.params.length;
-      int actual_param_count = node->data.fn_call_expr.params.length;
-      if (expected_param_count != actual_param_count) {
-        add_node_error(
-            g, node,
-            buf_sprintf("wrong number of argument, expect %d, got a %d",
-                        expected_param_count, actual_param_count));
-      }
-    }
-    for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-      AstNode *child = node->data.fn_call_expr.params.at(i);
-      analyze_expression(g, child);
-    }
-    break;
-  }
-  case NodeTypeCastExpr:
-    jane_panic("TODO: node type cast expr");
-    break;
-  case NodeTypePrefixOpExpr:
-    jane_panic("TODO: node type prefix operator expression");
-    break;
-  case NodeTypeNumberLiteral:
-  case NodeTypeStringLiteral:
-  case NodeTypeUnreachable:
-  case NodeTypeSymbol:
-    break;
-  case NodeTypeDirective:
-  case NodeTypeFnDecl:
-  case NodeTypeFnProto:
-  case NodeTypeParamDecl:
-  case NodeTypeType:
-  case NodeTypeRoot:
-  case NodeTypeRootExportDecl:
-  case NodeTypeExternBlock:
-  case NodeTypeFnDef:
-    jane_unreachable();
-  }
-}
-
 static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
   switch (node->type) {
   case NodeTypeFnDef: {
@@ -347,7 +415,13 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
       assert(param_decl_node->type == NodeTypeParamDecl);
     }
     check_fn_def_control_flow(g, node);
-    analyze_expression(g, node->data.fn_def.body);
+    BlockContext context;
+    context.node = node;
+    context.root = &context;
+    context.parent = nullptr;
+    TypeTableEntry *expected_type =
+        fn_proto->return_type->codegen_node->data.type_node.entry;
+    analyze_expression(g, &context, expected_type, node->data.fn_def.body);
   } break;
   case NodeTypeRootExportDecl:
   case NodeTypeExternBlock:
@@ -398,6 +472,11 @@ static void analyze_root(CodeGen *g, AstNode *node) {
 static void define_primitive_types(CodeGen *g) {
   {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+    buf_init_from_str(&entry->name, "(invalid)");
+    g->builtin_types.entry_invalid = entry;
+  }
+  {
+    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
     entry->type_ref = LLVMInt8Type();
     buf_init_from_str(&entry->name, "u8");
     entry->di_type =
@@ -425,13 +504,12 @@ static void define_primitive_types(CodeGen *g) {
                                      LLVMJaneEncoding_DW_ATE_unsigned());
     g->type_table.put(&entry->name, entry);
     g->builtin_types.entry_void = entry;
-    g->builtin_types.entry_invalid = entry;
   }
   {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
     entry->type_ref = LLVMVoidType();
     buf_init_from_str(&entry->name, "unreachable");
-    entry->di_type = g->builtin_types.entry_invalid->di_type;
+    entry->di_type = g->builtin_types.entry_void->di_type;
     g->type_table.put(&entry->name, entry);
     g->builtin_types.entry_unreachable = entry;
   }
