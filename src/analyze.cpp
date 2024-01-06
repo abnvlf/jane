@@ -111,7 +111,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node) {
   resolve_type(g, node->data.fn_proto.return_type);
 }
 
-static void preview_function_declarations(CodeGen *g, AstNode *node) {
+static void preview_function_declarations(CodeGen *g, ImportTableEntry *import,
+                                          AstNode *node) {
   switch (node->type) {
   case NodeTypeExternBlock:
     for (int i = 0; i < node->data.extern_block.directives->length; i += 1) {
@@ -134,9 +135,11 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
       Buf *name = &fn_proto->data.fn_proto.name;
 
       FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+      fn_table_entry->import_entry = import;
       fn_table_entry->proto_node = fn_proto;
       fn_table_entry->is_extern = true;
       fn_table_entry->calling_convention = LLVMCCallConv;
+      fn_table_entry->import_entry = import;
       g->fn_table.put(name, fn_table_entry);
     }
     break;
@@ -185,8 +188,8 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
                      buf_sprintf("only one root export declaration allowed"));
     } else {
       g->root_export_decl = node;
-      if (!g->out_name) {
-        g->out_name = &node->data.root_export_decl.name;
+      if (!g->root_out_name) {
+        g->root_out_name = &node->data.root_export_decl.name;
       }
       Buf *out_type = &node->data.root_export_decl.type;
       OutType export_out_type;
@@ -205,6 +208,9 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
         g->out_type = export_out_type;
       }
     }
+    break;
+  case NodeTypeUse:
+    jane_panic("TODO: using node type use");
     break;
   case NodeTypeDirective:
   case NodeTypeParamDecl:
@@ -353,6 +359,7 @@ static TypeTableEntry *analyze_expression(CodeGen *g, BlockContext *context,
   case NodeTypeRootExportDecl:
   case NodeTypeExternBlock:
   case NodeTypeFnDef:
+  case NodeTypeUse:
     jane_unreachable();
   }
   jane_unreachable();
@@ -425,6 +432,7 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
   } break;
   case NodeTypeRootExportDecl:
   case NodeTypeExternBlock:
+  case NodeTypeUse:
     break;
   case NodeTypeDirective:
   case NodeTypeParamDecl:
@@ -446,11 +454,11 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
   }
 }
 
-static void analyze_root(CodeGen *g, AstNode *node) {
+static void analyze_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
   assert(node->type == NodeTypeRoot);
   for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
     AstNode *child = node->data.root.top_level_decls.at(i);
-    preview_function_declarations(g, child);
+    preview_function_declarations(g, import, child);
   }
 
   for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
@@ -458,7 +466,7 @@ static void analyze_root(CodeGen *g, AstNode *node) {
     analyze_top_level_declaration(g, child);
   }
 
-  if (!g->out_name) {
+  if (!g->root_out_name) {
     add_node_error(
         g, node,
         buf_sprintf("missing export declaration and outptu name not provided"));
@@ -469,83 +477,6 @@ static void analyze_root(CodeGen *g, AstNode *node) {
   }
 }
 
-static void define_primitive_types(CodeGen *g) {
-  {
-    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    buf_init_from_str(&entry->name, "(invalid)");
-    g->builtin_types.entry_invalid = entry;
-  }
-  {
-    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->type_ref = LLVMInt8Type();
-    buf_init_from_str(&entry->name, "u8");
-    entry->di_type =
-        LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
-                                     LLVMJaneEncoding_DW_ATE_unsigned());
-    g->type_table.put(&entry->name, entry);
-    g->builtin_types.entry_u8 = entry;
-  }
-  {
-    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->type_ref = LLVMInt32Type();
-    buf_init_from_str(&entry->name, "i32");
-    entry->di_type =
-        LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
-                                     LLVMJaneEncoding_DW_ATE_signed());
-    g->type_table.put(&entry->name, entry);
-    g->builtin_types.entry_i32 = entry;
-  }
-  {
-    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->type_ref = LLVMVoidType();
-    buf_init_from_str(&entry->name, "void");
-    entry->di_type =
-        LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
-                                     LLVMJaneEncoding_DW_ATE_unsigned());
-    g->type_table.put(&entry->name, entry);
-    g->builtin_types.entry_void = entry;
-  }
-  {
-    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->type_ref = LLVMVoidType();
-    buf_init_from_str(&entry->name, "unreachable");
-    entry->di_type = g->builtin_types.entry_void->di_type;
-    g->type_table.put(&entry->name, entry);
-    g->builtin_types.entry_unreachable = entry;
-  }
-}
-
-void semantic_analyze(CodeGen *g) {
-  LLVMInitializeAllTargets();
-  LLVMInitializeAllTargetMCs();
-  LLVMInitializeAllAsmPrinters();
-  LLVMInitializeAllAsmParsers();
-  LLVMInitializeNativeTarget();
-
-  g->is_native_target = true;
-  char *native_triple = LLVMGetDefaultTargetTriple();
-
-  LLVMTargetRef target_ref;
-  char *err_msg = nullptr;
-  if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
-    jane_panic("unable to get target from triple: %s", err_msg);
-  }
-
-  char *native_cpu = LLVMJaneGetHostCPUName();
-  char *native_features = LLVMJaneGetNativeFeatures();
-
-  LLVMCodeGenOptLevel opt_level = (g->build_type == CodeGenBuildTypeDebug)
-                                      ? LLVMCodeGenLevelNone
-                                      : LLVMCodeGenLevelAggressive;
-
-  LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
-  g->target_machine = LLVMCreateTargetMachine(
-      target_ref, native_triple, native_cpu, native_features, opt_level,
-      reloc_mode, LLVMCodeModelDefault);
-  g->module = LLVMModuleCreateWithName("JaneModule");
-  g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
-  g->builder = LLVMCreateBuilder();
-  g->dbuilder = LLVMJaneCreateDIBuilder(g->module, true);
-  define_primitive_types(g);
-  analyze_root(g, g->root);
+void semantic_analyze(CodeGen *g, ImportTableEntry *import_table_entry) {
+  analyze_root(g, import_table_entry, import_table_entry->root);
 }

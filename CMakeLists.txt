@@ -19,16 +19,16 @@ include_directories(
 )
 
 set(JANE_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
+    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
-    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
-    "${CMAKE_SOURCE_DIR}/src/jane_llvm.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/jane_llvm.cpp"
 )
 
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")

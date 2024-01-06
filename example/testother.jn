@@ -1,0 +1,5 @@
+use "include_file.jane";
+
+fun test_text() {
+    puts("nab you are awesome");
+}

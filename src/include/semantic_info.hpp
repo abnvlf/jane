@@ -6,15 +6,6 @@
 #include "jane_llvm.hpp"
 #include "parser.hpp"
 
-struct FnTableEntry {
-  LLVMValueRef fn_value;
-  AstNode *proto_node;
-  AstNode *fn_def_node;
-  bool is_extern;
-  bool internal_linkage;
-  unsigned calling_convention;
-};
-
 struct TypeTableEntry {
   LLVMTypeRef type_ref;
   LLVMJaneDIType *di_type;
@@ -27,9 +18,24 @@ struct TypeTableEntry {
   TypeTableEntry *pointer_mut_parent;
 };
 
+struct ImportTableEntry {
+  AstNode *root;
+  Buf *path;
+  LLVMJaneDIFile *di_file;
+};
+
+struct FnTableEntry {
+  LLVMValueRef fn_value;
+  AstNode *proto_node;
+  AstNode *fn_def_node;
+  bool is_extern;
+  bool internal_linkage;
+  unsigned calling_convention;
+  ImportTableEntry *import_entry;
+};
+
 struct CodeGen {
   LLVMModuleRef module;
-  AstNode *root;
   JaneList<ErrorMsg> errors;
   LLVMBuilderRef builder;
   LLVMJaneDIBuilder *dbuilder;
@@ -38,6 +44,7 @@ struct CodeGen {
   HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
   HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
   HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
+  HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
   struct {
     TypeTableEntry *entry_u8;
     TypeTableEntry *entry_i32;
@@ -53,12 +60,10 @@ struct CodeGen {
   CodeGenBuildType build_type;
   LLVMTargetMachineRef target_machine;
   bool is_native_target;
-  Buf in_file;
-  Buf in_dir;
+  Buf *root_source_dir;
+  Buf *root_out_name;
   JaneList<LLVMJaneDIScope *> block_scopes;
-  LLVMJaneDIFile *di_file;
   JaneList<FnTableEntry *> fn_defs;
-  Buf *out_name;
   OutType out_type;
   FnTableEntry *cur_fn;
   bool c_stdint_used;
@@ -66,6 +71,8 @@ struct CodeGen {
   int version_major;
   int version_minor;
   int version_patch;
+  bool verbose;
+  bool initialized;
 };
 
 struct TypeNode {

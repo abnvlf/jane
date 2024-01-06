@@ -1,0 +1,5 @@
+#link("c")
+extern {
+    fun puts(s: *mut u8) -> i32;
+    fun exit(code: i32) -> unreachable;
+}

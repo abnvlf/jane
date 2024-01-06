@@ -117,6 +117,8 @@ const char *node_type_str(NodeType node_type) {
     return "Symbol";
   case NodeTypePrefixOpExpr:
     return "PrefixOpExpr";
+  case NodeTypeUse:
+    return "use";
   }
   jane_unreachable();
 }
@@ -248,6 +250,10 @@ void ast_print(AstNode *node, int indent) {
     break;
   case NodeTypeSymbol:
     fprintf(stderr, "PrimaryExpr Symbol %s\n", buf_ptr(&node->data.symbol));
+    break;
+  case NodeTypeUse:
+    fprintf(stderr, "%s `%s`\n", node_type_str(node->type),
+            buf_ptr(&node->data.use.path));
     break;
   }
 }
@@ -1085,6 +1091,27 @@ static AstNode *ast_parse_extern_block(ParseContext *pc, int *token_index,
   jane_unreachable();
 }
 
+static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
+                              bool mandatory) {
+  assert(mandatory == false);
+  Token *use_kw = &pc->tokens->at(*token_index);
+  if (use_kw->id != TokenIdKeywordUse) {
+    return nullptr;
+  }
+  *token_index += 1;
+  Token *use_name = &pc->tokens->at(*token_index);
+  *token_index += 1;
+  ast_expect_token(pc, use_name, TokenIdStringLiteral);
+  Token *semicolon = &pc->tokens->at(*token_index);
+  *token_index += 1;
+  ast_expect_token(pc, semicolon, TokenIdSemicolon);
+  AstNode *node = ast_create_node(NodeTypeUse, use_kw);
+  parse_string_literal(pc, use_name, &node->data.use.path);
+  node->data.use.directive = pc->directive_list;
+  pc->directive_list = nullptr;
+  return node;
+}
+
 static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index,
                                            bool mandatory) {
   assert(mandatory = false);
@@ -1133,6 +1160,11 @@ static void ast_parse_top_level_decl(ParseContext *pc, int *token_index,
     AstNode *extern_node = ast_parse_extern_block(pc, token_index, false);
     if (extern_node) {
       top_leveL_decls->append(extern_node);
+      continue;
+    }
+    AstNode *use_node = ast_parse_use(pc, token_index, false);
+    if (use_node) {
+      top_leveL_decls->append(use_node);
       continue;
     }
     if (pc->directive_list->length > 0) {

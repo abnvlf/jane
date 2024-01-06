@@ -1,27 +1,29 @@
 #include "include/codegen.hpp"
 #include "../config.h"
+#include "include/analyze.hpp"
 #include "include/error.hpp"
 #include "include/hash_map.hpp"
 #include "include/jane_llvm.hpp"
 #include "include/os.hpp"
+#include "include/parser.hpp"
 #include "include/semantic_info.hpp"
+#include "include/util.hpp"
 
 #include <errno.h>
+#include <llvm-c/Core.h>
+#include <llvm-c/Target.h>
+#include <llvm-c/TargetMachine.h>
 #include <stdio.h>
 
-CodeGen *create_codegen(AstNode *root, Buf *in_full_path) {
+CodeGen *create_codegen(Buf *root_source_dir) {
   CodeGen *g = allocate<CodeGen>(1);
-  g->root = root;
   g->fn_table.init(32);
   g->str_table.init(32);
   g->type_table.init(32);
   g->link_table.init(32);
-  g->is_static = false;
+  g->import_table.init(32);
   g->build_type = CodeGenBuildTypeDebug;
-  g->strip_debug_symbols = false;
-  g->out_name = nullptr;
-  g->out_type = OutTypeUnknown;
-  os_path_split(in_full_path, &g->in_dir, &g->in_file);
+  g->root_source_dir = root_source_dir;
   return g;
 }
 
@@ -33,6 +35,8 @@ void codegen_set_is_static(CodeGen *g, bool is_static) {
   g->is_static = is_static;
 }
 
+void codegen_set_verbose(CodeGen *g, bool verbose) { g->verbose = verbose; }
+
 void codegen_set_strip(CodeGen *g, bool strip) {
   g->strip_debug_symbols = strip;
 }
@@ -41,7 +45,9 @@ void codegen_set_out_type(CodeGen *g, OutType out_type) {
   g->out_type = out_type;
 }
 
-void codegen_set_out_name(CodeGen *g, Buf *out_name) { g->out_name = out_name; }
+void codegen_set_out_name(CodeGen *g, Buf *out_name) {
+  g->root_out_name = out_name;
+}
 
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
 
@@ -390,17 +396,18 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
   case NodeTypeBlock:
   case NodeTypeExternBlock:
   case NodeTypeDirective:
+  case NodeTypeUse:
     jane_unreachable();
   }
   jane_unreachable();
 }
 
-static void gen_block(CodeGen *g, AstNode *block_node,
+static void gen_block(CodeGen *g, ImportTableEntry *import, AstNode *block_node,
                       bool add_implicit_return) {
   assert(block_node->type == NodeTypeBlock);
   LLVMJaneDILexicalBlock *di_block = LLVMJaneCreateLexicalBlock(
-      g->dbuilder, g->block_scopes.last(), g->di_file, block_node->line + 1,
-      block_node->column + 1);
+      g->dbuilder, g->block_scopes.last(), import->di_file,
+      block_node->line + 1, block_node->column + 1);
   g->block_scopes.append(LLVMJaneLexicalBlockToScope(di_block));
   add_debug_source_node(g, block_node);
   for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
@@ -433,19 +440,9 @@ create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
                                       0);
 }
 
-void code_gen(CodeGen *g) {
+static void do_code_gen(CodeGen *g) {
   assert(!g->errors.length);
-  Buf *producer = buf_sprintf("jane %s", JANE_VERSION_STRING);
-  bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
-  const char *flags = "";
-  unsigned runtime_version = 0;
-  g->compile_unit = LLVMJaneCreateCompileUnit(
-      g->dbuilder, LLVMJaneLang_DW_LANG_C99(), buf_ptr(&g->in_file),
-      buf_ptr(&g->in_dir), buf_ptr(producer), is_optimized, flags,
-      runtime_version, "", 0, !g->strip_debug_symbols);
   g->block_scopes.append(LLVMJaneCompileUnitToScope(g->compile_unit));
-  g->di_file = LLVMJaneCreateFile(g->dbuilder, buf_ptr(&g->in_file),
-                                  buf_ptr(&g->in_dir));
   auto it = g->fn_table.entry_iterator();
   for (;;) {
     auto *entry = it.next();
@@ -482,6 +479,7 @@ void code_gen(CodeGen *g) {
   }
   for (int i = 0; i < g->fn_defs.length; i += 1) {
     FnTableEntry *fn_table_entry = g->fn_defs.at(i);
+    ImportTableEntry *import = fn_table_entry->import_entry;
     AstNode *fn_def_node = fn_table_entry->fn_def_node;
     LLVMValueRef fn = fn_table_entry->fn_value;
     g->cur_fn = fn_table_entry;
@@ -489,14 +487,15 @@ void code_gen(CodeGen *g) {
     AstNode *proto_node = fn_table_entry->proto_node;
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
-    LLVMJaneDIScope *fn_scope = LLVMJaneFileToScope(g->di_file);
+    LLVMJaneDIScope *fn_scope = LLVMJaneFileToScope(import->di_file);
     unsigned line_number = fn_def_node->line + 1;
     unsigned scope_line = line_number;
     bool is_definition = true;
     unsigned flags = 0;
+    bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
     LLVMJaneDISubprogram *subprogram = LLVMJaneCreateFunction(
-        g->dbuilder, fn_scope, buf_ptr(&fn_proto->name), "", g->di_file,
-        line_number, create_di_function_type(g, fn_proto, g->di_file),
+        g->dbuilder, fn_scope, buf_ptr(&fn_proto->name), "", import->di_file,
+        line_number, create_di_function_type(g, fn_proto, import->di_file),
         fn_table_entry->internal_linkage, is_definition, scope_line, flags,
         is_optimized, fn);
     g->block_scopes.append(LLVMJaneSubprogramToScope(subprogram));
@@ -509,25 +508,161 @@ void code_gen(CodeGen *g) {
     LLVMGetParams(fn, codegen_fn_def->params);
 
     bool add_implicit_return = codegen_fn_def->add_implicit_return;
-    gen_block(g, fn_def_node->data.fn_def.body, add_implicit_return);
+    gen_block(g, import, fn_def_node->data.fn_def.body, add_implicit_return);
 
     g->block_scopes.pop();
   }
   assert(!g->errors.length);
   LLVMJaneDIBuilderFinalize(g->dbuilder);
-  LLVMDumpModule(g->module);
+  if (g->verbose) {
+    LLVMDumpModule(g->module);
+  }
 #ifndef NDEBUG
   char *error = nullptr;
   LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
 }
 
-void code_gen_optimize(CodeGen *g) {
-  LLVMJaneOptimizeModule(g->target_machine, g->module);
-  LLVMDumpModule(g->module);
+static void define_primitive_types(CodeGen *g) {
+  {
+    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+    entry->type_ref = LLVMInt8Type();
+    buf_init_from_str(&entry->name, "u8");
+    entry->di_type =
+        LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
+                                     LLVMJaneEncoding_DW_ATE_unsigned());
+    g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_u8 = entry;
+  }
+  {
+    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+    entry->type_ref = LLVMInt32Type();
+    buf_init_from_str(&entry->name, "i32");
+    entry->di_type =
+        LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
+                                     LLVMJaneEncoding_DW_ATE_signed());
+    g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_i32 = entry;
+  }
+  {
+    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+    entry->type_ref = LLVMVoidType();
+    buf_init_from_str(&entry->name, "void");
+    entry->di_type =
+        LLVMJaneCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
+                                     LLVMJaneEncoding_DW_ATE_signed());
+    g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_invalid = entry;
+  }
+  {
+    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+    entry->type_ref = LLVMVoidType();
+    buf_init_from_str(&entry->name, "unreachable");
+    entry->di_type = g->builtin_types.entry_invalid->di_type;
+    g->type_table.put(&entry->name, entry);
+    g->builtin_types.entry_unreachable = entry;
+  }
 }
 
-JaneList<ErrorMsg> *codegen_error_messages(CodeGen *g) { return &g->errors; }
+static void init(CodeGen *g, Buf *source_path) {
+  LLVMInitializeAllTargets();
+  LLVMInitializeAllTargetMCs();
+  LLVMInitializeAllAsmPrinters();
+  LLVMInitializeAllAsmParsers();
+  LLVMInitializeNativeTarget();
+
+  g->is_native_target = true;
+  char *native_triple = LLVMGetDefaultTargetTriple();
+
+  LLVMTargetRef target_ref;
+  char *err_msg = nullptr;
+  if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
+    jane_panic("unable to get target from triple: %s", err_msg);
+  }
+  char *native_cpu = LLVMJaneGetHostCPUName();
+  char *native_features = LLVMJaneGetNativeFeatures();
+
+  LLVMCodeGenOptLevel opt_level = (g->build_type == CodeGenBuildTypeDebug)
+                                      ? LLVMCodeGenLevelNone
+                                      : LLVMCodeGenLevelAggressive;
+  LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
+  g->target_machine = LLVMCreateTargetMachine(
+      target_ref, native_triple, native_cpu, native_features, opt_level,
+      reloc_mode, LLVMCodeModelDefault);
+  g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
+  g->module = LLVMModuleCreateWithName("JaneModule");
+  g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
+  define_primitive_types(g);
+
+  Buf *producer = buf_sprintf("jane %s", JANE_VERSION_STRING);
+  bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
+  const char *flags = "";
+  unsigned runtime_version = 0;
+  g->compile_unit = LLVMJaneCreateCompileUnit(
+      g->dbuilder, LLVMJaneLang_DW_LANG_C99(), buf_ptr(source_path),
+      buf_ptr(g->root_source_dir), buf_ptr(producer), is_optimized, flags,
+      runtime_version, "", 0, !g->strip_debug_symbols);
+}
+
+void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+  if (!g->initialized) {
+    g->initialized = true;
+    init(g, source_path);
+  }
+  Buf full_path = BUF_INIT;
+  os_path_join(g->root_source_dir, source_path, &full_path);
+  Buf dirname = BUF_INIT;
+  Buf basename = BUF_INIT;
+  os_path_split(&full_path, &dirname, &basename);
+
+  if (g->verbose) {
+    fprintf(stderr, "\noriginal source [`%s`]:\n", buf_ptr(source_path));
+    fprintf(stderr, "----\n");
+    fprintf(stderr, "%s\n", buf_ptr(source_code));
+    fprintf(stderr, "\ntokens:\n");
+    fprintf(stderr, "----\n");
+  }
+  JaneList<Token> *tokens = tokenize(source_code);
+
+  if (g->verbose) {
+    print_tokens(source_code, tokens);
+    fprintf(stderr, "\nAST:\n");
+    fprintf(stderr, "----\n");
+  }
+
+  ImportTableEntry *import_entry = allocate<ImportTableEntry>(1);
+  import_entry->root = ast_parse(source_code, tokens);
+  assert(import_entry->root);
+  if (g->verbose) {
+    ast_print(import_entry->root, 0);
+    fprintf(stderr, "\nsemantic analysis:\n");
+    fprintf(stderr, "----\n");
+  }
+
+  import_entry->path = source_path;
+  import_entry->di_file =
+      LLVMJaneCreateFile(g->dbuilder, buf_ptr(&basename), buf_ptr(&dirname));
+  g->import_table.put(source_path, import_entry);
+  semantic_analyze(g, import_entry);
+
+  if (g->errors.length == 0) {
+    if (g->verbose) {
+      fprintf(stderr, "nice one\n");
+    }
+  } else {
+    for (int i = 0; i < g->errors.length; i += 1) {
+      ErrorMsg *err = &g->errors.at(i);
+      fprintf(stderr, "error: line %d, colum: %d: %s\n", err->line_start + 1,
+              err->column_start + 1, buf_ptr(err->msg));
+    }
+    exit(1);
+  }
+  if (g->verbose) {
+    fprintf(stderr, "\ncode generation:\n");
+    fprintf(stderr, "----\n");
+  }
+  do_code_gen(g);
+}
 
 static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
   assert(type_node->type == NodeTypeType);
@@ -548,15 +683,15 @@ static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
 }
 
 static void generate_h_file(CodeGen *g) {
-  Buf *h_file_out_path = buf_sprintf("%s.h", buf_ptr(g->out_name));
+  Buf *h_file_out_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
   FILE *out_h = fopen(buf_ptr(h_file_out_path), "wb");
   if (!out_h) {
     jane_panic("unable to open: %s: %s", buf_ptr(h_file_out_path),
                strerror(errno));
   }
-  Buf *export_macro = buf_sprintf("%s_EXPORT", buf_ptr(g->out_name));
+  Buf *export_macro = buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name));
   buf_upcase(export_macro);
-  Buf *extern_c_macro = buf_sprintf("%s_EXTERN_C", buf_ptr(g->out_name));
+  Buf *extern_c_macro = buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name));
   buf_upcase(extern_c_macro);
   Buf h_buf = BUF_INIT;
   buf_resize(&h_buf, 0);
@@ -587,8 +722,8 @@ static void generate_h_file(CodeGen *g) {
       buf_appendf(&h_buf, "void);\n");
     }
   }
-  Buf *ifdef_dance_name =
-      buf_sprintf("%s_%s_H", buf_ptr(g->out_name), buf_ptr(g->out_name));
+  Buf *ifdef_dance_name = buf_sprintf("%s_%s_H", buf_ptr(g->root_out_name),
+                                      buf_ptr(g->root_out_name));
   buf_upcase(ifdef_dance_name);
   fprintf(out_h, "#ifndef %s\n", buf_ptr(ifdef_dance_name));
   fprintf(out_h, "#define %s\n\n", buf_ptr(ifdef_dance_name));
@@ -617,9 +752,25 @@ static void generate_h_file(CodeGen *g) {
   }
 }
 
-void code_gen_link(CodeGen *g, const char *out_file) {
+void codegen_link(CodeGen *g, const char *out_file) {
+  bool is_optimized = (g->build_type == CodeGenBuildTypeRelease);
+  if (is_optimized) {
+    if (g->verbose) {
+      fprintf(stderr, "\noptimizitation:\n");
+      fprintf(stderr, "----\n");
+    }
+    LLVMJaneOptimizeModule(g->target_machine, g->module);
+    if (g->verbose) {
+      LLVMDumpModule(g->module);
+    }
+  }
+  if (g->verbose) {
+    fprintf(stderr, "\nlink:\n");
+    fprintf(stderr, "----\n");
+  }
+
   if (!out_file) {
-    out_file = buf_ptr(g->out_name);
+    out_file = buf_ptr(g->root_out_name);
   }
   Buf out_file_o = BUF_INIT;
   buf_init_from_str(&out_file_o, out_file);
@@ -656,10 +807,10 @@ void code_gen_link(CodeGen *g, const char *out_file) {
 
   if (g->out_type == OutTypeLib) {
     Buf *out_lib_so =
-        buf_sprintf("lib%s.so.%d.%d.%d", buf_ptr(g->out_name), g->version_major,
-                    g->version_major, g->version_patch);
+        buf_sprintf("lib%s.so.%d.%d.%d", buf_ptr(g->root_out_name),
+                    g->version_major, g->version_major, g->version_patch);
     Buf *soname =
-        buf_sprintf("lib%s.so.%d", buf_ptr(g->out_name), g->version_major);
+        buf_sprintf("lib%s.so.%d", buf_ptr(g->root_out_name), g->version_major);
     args.append("-shared");
     args.append("-soname");
     args.append(buf_ptr(soname));
@@ -680,5 +831,9 @@ void code_gen_link(CodeGen *g, const char *out_file) {
   os_spawn_process("ld", args, false);
   if (g->out_type == OutTypeLib) {
     generate_h_file(g);
+  }
+
+  if (g->verbose) {
+    fprintf(stderr, "nice one\n");
   }
 }

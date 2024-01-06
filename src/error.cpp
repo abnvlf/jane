@@ -8,6 +8,8 @@ const char *err_str(int err) {
     return "out of memory";
   case ErrorInvalidFormat:
     return "invalid format";
+  case ErrorSemanticAnalyzeFail:
+    return "semantic analyze failed";
   }
   return "(invalid error!)";
 }

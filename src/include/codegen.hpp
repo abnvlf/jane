@@ -19,7 +19,8 @@ struct ErrorMsg {
   Buf *msg;
 };
 
-CodeGen *create_codegen(AstNode *root, Buf *in_files);
+CodeGen *create_codegen(Buf *root_source_dir);
+
 enum CodeGenBuildType {
   CodeGenBuildTypeDebug,
   CodeGenBuildTypeRelease,
@@ -28,13 +29,11 @@ enum CodeGenBuildType {
 void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
+void codegen_set_verbose(CodeGen *codegen, bool verbose);
 void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 
-void code_gen_optimize(CodeGen *g);
-void code_gen(CodeGen *g);
-void code_gen_link(CodeGen *g, const char *out_file);
-
-JaneList<ErrorMsg> *codegen_error_message(CodeGen *g);
+void codegen_and_code(CodeGen *g, Buf *source_path, Buf *source_code);
+void codegen_link(CodeGen *g, const char *out_file);
 
 #endif // JANE_CODEGEN
