@@ -7,7 +7,7 @@ Buf *buf_sprintf(const char *format, ...) {
   va_list ap, ap2;
   va_start(ap, format);
   va_copy(ap2, ap);
-  // determine the lenght of the formatted string
+  // determine the length of the formatted string
   int len1 = vsnprintf(nullptr, 0, format, ap);
   assert(len1 >= 0);
   // calculate the required size for the buffer
