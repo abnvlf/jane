@@ -11,15 +11,15 @@
     { 0 }                                                                      \
   }
 
-// dyanimc buffer data structu with string formatting capability
+// dynamic buffer data structure with string formatting capability
 struct Buf {
   JaneList<char> list;
 };
 
 /**
- * @brief format string and return dynamicallu allocated buffer
+ * @brief format string and return dynamically allocated buffer
  * @param format formatted string
- * *@return dynamically allocated byffer with the formatted string
+ * *@return dynamically allocated buffer with the formatted string
  */
 Buf *buf_sprintf(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
@@ -43,7 +43,7 @@ static inline char *buf_ptr(Buf *buf) {
   return buf->list.items;
 }
 /**
- * @brief aresize the buffer to the specified new length
+ * @brief resize the buffer to the specified new length
  * @param the buffer
  * @param new_len new length of the buffer
  */
@@ -71,7 +71,7 @@ static inline Buf *buf_alloc_fixed(int size) {
 static inline void buf_deinit(Buf *buf) { buf->list.deinit(); }
 
 /**
- * @brief iniitialize buffer from a memory region
+ * @brief initialize buffer from a memory region
  * @param buf buffer to initialize
  * @param ptr pointer to the memory region
  * @param len length of memory region
@@ -166,7 +166,7 @@ static inline void buf_append_str(Buf *buf, const char *str) {
 }
 
 /**
- * @brief append the cotnent of another buffer to the end of the buffer
+ * @brief append the content of another buffer to the end of the buffer
  * @param buf the buffer
  * @param append_buf buffer to append
  */
@@ -199,7 +199,7 @@ void buf_appendf(Buf *buf, const char *format, ...)
  * @param buf buffer
  * @param mem pointer to the memory region
  * @param mem_len length of the memory region
- * @return `true` if the contet is equal, otherwise `false`
+ * @return `true` if the content is equal, otherwise `false`
  */
 static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
   if (buf_len(buf) != mem_len) {
