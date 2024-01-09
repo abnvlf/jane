@@ -6,6 +6,7 @@
 #include "jane_llvm.hpp"
 #include "parser.hpp"
 
+struct FnTableEntry;
 struct TypeTableEntry {
   LLVMTypeRef type_ref;
   LLVMJaneDIType *di_type;
@@ -22,6 +23,7 @@ struct ImportTableEntry {
   AstNode *root;
   Buf *path;
   LLVMJaneDIFile *di_file;
+  HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 };
 
 struct FnTableEntry {
@@ -72,7 +74,6 @@ struct CodeGen {
   int version_minor;
   int version_patch;
   bool verbose;
-  bool initialized;
 };
 
 struct TypeNode {

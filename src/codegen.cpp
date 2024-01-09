@@ -15,7 +15,7 @@
 #include <llvm-c/TargetMachine.h>
 #include <stdio.h>
 
-CodeGen *create_codegen(Buf *root_source_dir) {
+CodeGen *codegen_crate(Buf *root_source_dir) {
   CodeGen *g = allocate<CodeGen>(1);
   g->fn_table.init(32);
   g->str_table.init(32);
@@ -604,11 +604,7 @@ static void init(CodeGen *g, Buf *source_path) {
       runtime_version, "", 0, !g->strip_debug_symbols);
 }
 
-void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
-  if (!g->initialized) {
-    g->initialized = true;
-    init(g, source_path);
-  }
+static void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
   Buf full_path = BUF_INIT;
   os_path_join(g->root_source_dir, source_path, &full_path);
   Buf dirname = BUF_INIT;
@@ -631,19 +627,48 @@ void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
   }
 
   ImportTableEntry *import_entry = allocate<ImportTableEntry>(1);
+  import_entry->fn_table.init(32);
   import_entry->root = ast_parse(source_code, tokens);
   assert(import_entry->root);
   if (g->verbose) {
     ast_print(import_entry->root, 0);
-    fprintf(stderr, "\nsemantic analysis:\n");
-    fprintf(stderr, "----\n");
   }
 
   import_entry->path = source_path;
   import_entry->di_file =
       LLVMJaneCreateFile(g->dbuilder, buf_ptr(&basename), buf_ptr(&dirname));
   g->import_table.put(source_path, import_entry);
-  semantic_analyze(g, import_entry);
+
+  assert(import_entry->root->type == NodeTypeRoot);
+  for (int decl_i = 0;
+       decl_i < import_entry->root->data.root.top_level_decls.length;
+       decl_i += 1) {
+    AstNode *top_level_decl =
+        import_entry->root->data.root.top_level_decls.at(decl_i);
+    if (top_level_decl->type != NodeTypeUse) {
+      continue;
+    }
+    auto entry = g->import_table.maybe_get(&top_level_decl->data.use.path);
+    if (!entry) {
+      Buf full_path = BUF_INIT;
+      os_path_join(g->root_source_dir, &top_level_decl->data.use.path,
+                   &full_path);
+      Buf import_code = BUF_INIT;
+      os_fetch_file_path(&full_path, &import_code);
+      codegen_add_code(g, &top_level_decl->data.use.path, &import_code);
+    }
+  }
+}
+
+void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+  init(g, source_path);
+  codegen_add_code(g, source_path, source_code);
+
+  if (g->verbose) {
+    fprintf(stderr, "\nsemantic analysis\n");
+    fprintf(stderr, "----\n");
+  }
+  semantic_analyze(g);
 
   if (g->errors.length == 0) {
     if (g->verbose) {
@@ -652,14 +677,14 @@ void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
   } else {
     for (int i = 0; i < g->errors.length; i += 1) {
       ErrorMsg *err = &g->errors.at(i);
-      fprintf(stderr, "error: line %d, colum: %d: %s\n", err->line_start + 1,
+      fprintf(stderr, "error: line %d column %d: %s\n", err->line_start + 1,
               err->column_start + 1, buf_ptr(err->msg));
     }
     exit(1);
   }
   if (g->verbose) {
     fprintf(stderr, "\ncode generation:\n");
-    fprintf(stderr, "----\n");
+    fprintf(stderr, "---\n");
   }
   do_code_gen(g);
 }

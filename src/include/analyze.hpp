@@ -5,6 +5,6 @@
 
 struct CodeGen;
 struct ImportTableEntry;
-void semantic_analyze(CodeGen *g, ImportTableEntry *entry);
+void semantic_analyze(CodeGen *g);
 
 #endif // JANE_ANALYZE

@@ -1,24 +1,9 @@
 #include "../config.h"
-#include "include/analyze.hpp"
 #include "include/buffer.hpp"
 #include "include/codegen.hpp"
-#include "include/error.hpp"
-#include "include/list.hpp"
-#include "include/parser.hpp"
-#include "include/tokenizer.hpp"
-#include "include/util.hpp"
+#include "include/os.hpp"
 
-#include <cstdlib>
-#include <errno.h>
-#include <inttypes.h>
-#include <limits.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 static int usage(const char *arg0) {
   fprintf(stderr,
@@ -47,90 +32,50 @@ static int version(void) {
   return EXIT_SUCCESS;
 }
 
-static Buf *fetch_file(FILE *f) {
-  int fd = fileno(f);
-  struct stat st;
-  if (fstat(fd, &st)) {
-    jane_panic("unable to stat file: %s", strerror(errno));
-  }
-  off_t big_size = st.st_size;
-  if (big_size > INT_MAX) {
-    jane_panic("file to big");
-  }
-  int size = (int)big_size;
-  Buf *buf = buf_alloc_fixed(size);
-  size_t amt_read = fread(buf_ptr(buf), 1, buf_len(buf), f);
-  if (amt_read != (size_t)buf_len(buf)) {
-    jane_panic("error reading: `%s`", strerror(errno));
-  }
-  return buf;
-}
+struct Build {
+  const char *input_file;
+  const char *output_file;
+  bool release;
+  bool strip;
+  bool is_static;
+  OutType out_type;
+  const char *output_name;
+  bool verbose;
+};
 
-static int build(const char *arg0, const char *in_files, const char *out_files,
-                 bool release, bool strip, bool is_static, OutType out_type,
-                 char *output_name) {
-  static char cur_dir[1024];
-  if (!in_files || !out_files) {
+static int build(const char *arg0, Build *b) {
+  if (!b->input_file) {
     return usage(arg0);
   }
+  Buf in_file_buf = BUF_INIT;
+  buf_init_from_str(&in_file_buf, b->input_file);
 
-  FILE *in_f;
-  if (strcmp(in_files, "-") == 0) {
-    in_f = stdin;
-    char *result = getcwd(cur_dir, sizeof(cur_dir));
-    if (!result) {
-      jane_panic("unable get current work directory: %s", strerror(errno));
-    }
+  Buf root_source_dir = BUF_INIT;
+  Buf root_source_code = BUF_INIT;
+  Buf root_source_name = BUF_INIT;
+  if (buf_eql_str(&in_file_buf, "-")) {
+    os_get_cwd(&root_source_dir);
+    os_fetch_file(stdin, &root_source_code);
+    buf_init_from_str(&root_source_name, "");
   } else {
-    in_f = fopen(in_files, "rb");
-    if (!in_f) {
-      jane_panic("unable to open %s for reading: %s\n", in_files,
-                 strerror(errno));
-    }
+    os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
+    os_fetch_file_path(buf_create_from_str(b->input_file), &root_source_code);
   }
-  fprintf(stderr, "original source code:\n");
-  fprintf(stderr, "----\n");
-  Buf *in_data = fetch_file(in_f);
-  fprintf(stderr, "%s\n", buf_ptr(in_data));
 
-  fprintf(stderr, "\ntoken:\n");
-  fprintf(stderr, "----\n");
-  JaneList<Token> *tokens = tokenize(in_data);
-  print_tokens(in_data, tokens);
-
-  fprintf(stderr, "\nAST:\n");
-  fprintf(stderr, "----\n");
-  AstNode *root = ast_parse(in_data, tokens);
-  assert(root);
-  ast_print(root, 0);
-
-  fprintf(stderr, "\nsemantic analysis\n");
-  fprintf(stderr, "----\n");
-  CodeGen *codegen = create_codegen(root, buf_create_from_str(in_files));
-  codegen_set_build_type(codegen, release ? CodeGenBuildTypeRelease
-                                          : CodeGenBuildTypeDebug);
-  codegen_set_strip(codegen, strip);
-  codegen_set_is_static(codegen, is_static);
-  semantic_analyze(codegen);
-  JaneList<ErrorMsg> *errors = codegen_error_message(codegen);
-  if (errors->length == 0) {
-    fprintf(stderr, "nice one\n");
-  } else {
-    for (int i = 0; i < errors->length; i += 1) {
-      ErrorMsg *err = &errors->at(i);
-      fprintf(stderr, "UPSS ERROR: line `%d`, column `%d`: `%s`\n",
-              err->line_start + 1, err->column_start + 1, buf_ptr(err->msg));
-    }
-    return 1;
+  CodeGen *g = codegen_create(&root_source_dir);
+  codegen_set_build_type(g, b->release ? CodeGenBuildTypeRelease
+                                       : CodeGenBuildTypeDebug);
+  codegen_set_strip(g, b->strip);
+  codegen_set_is_static(g, b->is_static);
+  if (b->out_type != OutTypeUnknown) {
+    codegen_set_out_type(g, b->out_type);
   }
-  fprintf(stderr, "\ncode generate:\n");
-  fprintf(stderr, "---\n");
-  code_gen(codegen);
-
-  fprintf(stderr, "\nlink:\n");
-  fprintf(stderr, "---\n");
-  code_gen_link(codegen, out_files);
-  fprintf(stderr, "nice one\n");
+  if (b->out_type) {
+    codegen_set_out_name(g, buf_create_from_str(b->output_name));
+  }
+  codegen_set_verbose(g, buf_create_from_str(b->output_name));
+  codegen_add_root_code(g, &root_source_code, &root_source_code);
+  codegen_link(g, b->output_file);
   return 0;
 }
 
@@ -142,43 +87,36 @@ enum Cmd {
 
 int main(int argc, char **argv) {
   char *arg0 = argv[0];
-  char *input_file = NULL;
-  char *output_file = NULL;
-  bool release = false;
-  bool strip = false;
-  bool is_static = false;
 
-  OutType out_type = OutTypeUnknown;
-  char *output_name = NULL;
-
+  Build b = {0};
   Cmd cmd = CmdNone;
   for (int i = 1; i < argc; i += 1) {
     char *arg = argv[i];
     if (arg[0] == '-' && arg[1] == '-') {
       if (strcmp(arg, "--release") == 0) {
-        release = true;
+        b.release = true;
       } else if (strcmp(arg, "--strip") == 0) {
-        strip = true;
+        b.strip = true;
       } else if (strcmp(arg, "--static") == 0) {
-        is_static = true;
+        b.is_static = true;
       } else if (i + 1 >= argc) {
         return usage(arg0);
       } else {
         i += 1;
         if (strcmp(arg, "--output") == 0) {
-          output_file = argv[i];
+          b.output_file = argv[i];
         } else if (strcmp(arg, "--export") == 0) {
           if (strcmp(argv[i], "exe") == 0) {
-            out_type = OutTypeExe;
+            b.out_type = OutTypeExe;
           } else if (strcmp(argv[i], "lib") == 0) {
-            out_type = OutTypeLib;
+            b.out_type = OutTypeLib;
           } else if (strcmp(argv[i], "obj") == 0) {
-            out_type = OutTypeObj;
+            b.out_type = OutTypeObj;
           } else {
             return usage(arg0);
           }
         } else if (strcmp(arg, "--name") == 0) {
-          output_name = argv[i];
+          b.output_name = argv[i];
         } else {
           return usage(arg0);
         }
@@ -197,8 +135,8 @@ int main(int argc, char **argv) {
       case CmdNone:
         jane_unreachable();
       case CmdBuild:
-        if (!input_file) {
-          input_file = arg;
+        if (!b.input_file) {
+          b.input_file = arg;
         } else {
           return usage(arg0);
         }
@@ -213,8 +151,7 @@ int main(int argc, char **argv) {
   case CmdNone:
     return usage(arg0);
   case CmdBuild:
-    return build(arg0, input_file, output_file, release, strip, is_static,
-                 out_type, output_name);
+    return build(arg0, &b);
   case CmdVersion:
     return version();
   }
